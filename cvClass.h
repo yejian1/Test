@@ -26,6 +26,7 @@ enum InterpolationFlags {
 template<typename _Tp> class mySize;
 template<typename _Tp> class myRect;
 template<typename _Tp, int chs>class myMat;
+template<typename _Tp> class myScalar;
 
 template<typename _Tp, size_t fixed_size = 1024 / sizeof(_Tp) + 8> class AutoBuffer
 {
@@ -87,7 +88,7 @@ template<typename _Tp, int chs>class myMat
 		myMat() :rows(0), cols(0), channls(0), data(NULL);
 
 		//¶þÎ¬¾ØÕó
-		myMat(int _rows, int _cols, uchar value);
+		myMat(int _rows, int _cols, const Scalar& _s);
 		myMat(int _rows,int _cols, uchar* _data)£»
 
 		int rows,cols,channels,step;
@@ -98,6 +99,38 @@ template<typename _Tp, int chs>class myMat
 		
 };
 
+
+
+template<typename _Tp, int chs>
+myMat<_Tp, chs>::myMat(int _rows, int _cols, const Scalar& _s)
+{
+	FBC_Assert(_rows > 0 && _cols > 0 && chs > 0);
+
+	this->rows = _rows;
+	this->cols = _cols;
+	this->channels = chs;
+	this->step = sizeof(_Tp) * _cols * chs;
+	this->allocated = true;
+
+	size_t size_ = this->rows * this->step;
+	uchar* p = (uchar*)fastMalloc(size_);
+	FBC_Assert(p != NULL);
+	this->data = p;
+	this->datastart = this->data;
+	this->dataend = this->data + size_;
+
+	for (int i = 0; i < _rows; i++) {
+		_Tp* pRow = (_Tp*)this->data + i * _cols * chs;
+
+		for (int j = 0; j < _cols; j++) {
+			_Tp* pPixel = pRow + j * chs;
+
+			for (int m = 0, n = 0; m < chs && n < 4; m++, n++) {
+				pPixel[n] = saturate_cast<_Tp>(_s.val[n]);
+			}
+		}
+	}
+}
 
 
 template<typename _Tp, int chs> int resize_linar(const myMat<_Tp, chs>& _src, myMat<_Tp, chs>& _dst);
@@ -348,4 +381,90 @@ template<typename _Tp> inline
 _Tp myRect<_Tp>::area() const
 {
 	return width * height;
+}
+
+
+//////////////////////////////// myScalar ////////////////////////////////
+template<typename _Tp> class myScalar
+{
+public:
+	//! various constructors
+	enum {
+		rows = m,
+		cols = n,
+		channels = rows * cols,
+		shortdim = (m < n ? m : n)
+	};
+	myScalar();
+	myScalar(_Tp v0, _Tp v1, _Tp v2 = 0, _Tp v3 = 0);
+	myScalar(_Tp v0);
+
+	template<typename _Tp2, int cn>
+	myScalar(const Vec<_Tp2, cn>& v);
+
+	//! returns a scalar with all elements set to v0
+	static myScalar<_Tp> all(_Tp v0);
+
+	//! conversion to another data type
+	template<typename T2> operator myScalar<T2>() const;
+
+	//! per-element product
+	myScalar<_Tp> mul(const myScalar<_Tp>& a, double scale = 1) const;
+
+	// returns (v0, -v1, -v2, -v3)
+	myScalar<_Tp> conj() const;
+
+	// returns true iff v1 == v2 == v3 == 0
+	bool isReal() const;
+
+	_Tp val[m*n];
+};
+
+typedef myScalar<double> Scalar;
+
+///////////////////////////////// Scalar_ ////////////////////////////////
+template<typename _Tp> inline
+myScalar<_Tp>::myScalar()
+{
+	this->val[0] = this->val[1] = this->val[2] = this->val[3] = 0;
+}
+
+template<typename _Tp> inline
+myScalar<_Tp>::myScalar(_Tp v0, _Tp v1, _Tp v2, _Tp v3)
+{
+	this->val[0] = v0;
+	this->val[1] = v1;
+	this->val[2] = v2;
+	this->val[3] = v3;
+}
+
+template<typename _Tp> inline
+myScalar<_Tp>::myScalar(_Tp v0)
+{
+	this->val[0] = v0;
+	this->val[1] = this->val[2] = this->val[3] = 0;
+}
+
+template<typename _Tp> inline
+myScalar<_Tp> myScalar<_Tp>::all(_Tp v0)
+{
+	return myScalar<_Tp>(v0, v0, v0, v0);
+}
+
+template<typename _Tp> template<typename T2> inline
+myScalar<_Tp>::operator myScalar<T2>() const
+{
+	return Scalar_<T2>(saturate_cast<T2>(this->val[0]),
+		saturate_cast<T2>(this->val[1]),
+		saturate_cast<T2>(this->val[2]),
+		saturate_cast<T2>(this->val[3]));
+}
+
+template<typename _Tp> inline
+myScalar<_Tp> myScalar<_Tp>::mul(const myScalar<_Tp>& a, double scale) const
+{
+	return Scalar_<_Tp>(saturate_cast<_Tp>(this->val[0] * a.val[0] * scale),
+		saturate_cast<_Tp>(this->val[1] * a.val[1] * scale),
+		saturate_cast<_Tp>(this->val[2] * a.val[2] * scale),
+		saturate_cast<_Tp>(this->val[3] * a.val[3] * scale));
 }
